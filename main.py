@@ -33,13 +33,11 @@ def lambda_handler(event, context):
     # Params are fetch from Nike SNKRS app
     params = (
         ('format', 'v4'),
-        ('upcoming', 'true' if os.environ["UPCOMING"] else 'false'),
         ('anchor', str(os.environ["ANCHOR"])),
         ('language', os.environ["LANG"]),
         ('marketplace', os.environ["MARKETPLACE"]),
-        ('includeContentThreads', 'false'),
+        ('includeContentThreads', 'true'),
         ('exclusiveAccess', 'true,false' if os.environ["EXCLUSIVE_ACCESS"] else 'false'),
-        ('sort', 'productInfo.merchProduct.commerceStartDateAsc'),
     )
     
     response = s.get(os.environ["URL"], headers=headers, params=params, proxies=proxy, verify=False)
@@ -75,10 +73,17 @@ def lambda_handler(event, context):
                     tag = ""
             else: 
                 tag = ""
-            description = obj["publishedContent"]["properties"]["seo"]["description"].lower()
+
+            if obj["publishedContent"]["properties"]["seo"]["description"] != "":
+                description = obj["publishedContent"]["properties"]["seo"]["description"]
+            elif obj["publishedContent"]["properties"]["seo"]["keywords"] != "" and not(isinstance(obj["publishedContent"]["properties"]["seo"]["keywords"], list)):
+                description = obj["publishedContent"]["properties"]["seo"]["keywords"]
+            else: 
+                description = ""
 
             # "SNKRS PASS" contained in object details
-            if( (s in title) or (s in tag) or (s in description) ):
+            if( (s in title) or (s in tag) or (s in description.lower()) ):
+                print("Found pass! "+str(id))
                 new = True
 
                 # previousPass hasn't been initialized before
@@ -93,6 +98,7 @@ def lambda_handler(event, context):
                 for i in previousPass["Items"]:
                     if( id == i["id"]["S"] ): # if already in database new = False
                         new = False
+                        print("Pass [" + id + "] already in Database !")
                 
                 if new:
                     newStash.append(obj)
@@ -110,7 +116,7 @@ def lambda_handler(event, context):
             print(i["id"])
             print(i["publishedContent"]["properties"]["title"])
             print(i["publishedContent"]["properties"]["seo"]["description"])
-            itemsToTable.append({"PutRequest": {"Item": dict_to_item(i)} })
+            itemsToTable.append({"PutRequest": {"Item": {"id": {"S": i["id"]}, "title": {"S": i["publishedContent"]["properties"]["seo"]["title"]}}} })
         #https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_BatchWriteItem.html#API_BatchWriteItem_Examples
         response = client.batch_write_item(
             RequestItems={
@@ -128,8 +134,8 @@ def lambda_handler(event, context):
 
     print(response)
     return {
-        'statusCode': response.status_code,
-        'body': json.dumps('Response from client: '+str(response.status_code) + "\n"),
+        'statusCode': response.ResponseMetadata.HTTPStatusCode,
+        'body': json.dumps('Response from client: '+str(response.ResponseMetadata.HTTPStatusCode) + "\n"),
         'code': response.status_code
     }
 
@@ -166,7 +172,7 @@ def toDiscord(title: str, description: str, thumbnail: str, content: Optional[st
         content (Optional[str], optional): Content of the Discord Webhook message. Defaults to None.
     """
     message = {
-      "content": content,
+      "content": content if content else getAdminDiscordUser(),
       "embeds": [
         {
           "title": "SNKRS PASS",
@@ -178,11 +184,11 @@ def toDiscord(title: str, description: str, thumbnail: str, content: Optional[st
             },
             {
               "name": "Description",
-              "value": description
+              "value": description if description else "No description"
             },
             {
               "name": "OPEN YOUR SNKRS APP",
-              "value": "HERE"
+              "value": "HERE" #TODO: Add hyperlink to app
             }
           ],
           "thumbnail": {
@@ -193,7 +199,10 @@ def toDiscord(title: str, description: str, thumbnail: str, content: Optional[st
       "username": "AZER-PASS"
     }
     url = os.environ["WEBHOOK"]
-    requests.post(url, headers={"Content-Type": "application/json"}, data=json.dumps(message))
+    r = requests.post(url, headers={"Content-Type": "application/json"}, json=message)
+    if(r.status_code != 204):
+        print("Error while posting to Discord")
+        print(r.text)
 
 def getUserAgent() -> str:
     """Get a random UA from our list of user agents
