@@ -6,6 +6,9 @@ Once it's mature enough, I will add support for Twitter ([@azrpas](https://twitt
 
 Do not hesitate to contact me at: [anthony@smbs.io](mailto:anthony@smbs.io)
 
+## Contribute
+Do not hesitate to fork and pull request !
+
 ## Setup
 
 WIP
